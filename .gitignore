@@ -79,3 +79,7 @@ target/
 /dist/
 /docs/_build/
 /src/*.egg-info/
+
+# Local invoice test data
+/input/
+/output/
