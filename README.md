@@ -1,156 +1,367 @@
-<p align="center">
-  <img src="docs/_static/banner.svg" alt="invoice2data" width="640">
-</p>
+# Invoice Business Automation
 
-# Data extractor for PDF invoices - invoice2data
+A Python-based invoice processing automation pipeline that extracts structured invoice data from PDF files, validates the extracted information, detects duplicate invoices, reconciles line-item totals, and routes problematic invoices for manual review.
 
-[![Read the documentation at https://invoice2data.readthedocs.io/](https://img.shields.io/readthedocs/invoice2data/latest.svg?label=Read%20the%20Docs)][read the docs]
-[![Version](https://img.shields.io/pypi/v/invoice2data.svg)](https://pypi.python.org/pypi/invoice2data)
-[![Support Python versions](https://img.shields.io/pypi/pyversions/invoice2data.svg)](https://pypi.python.org/pypi/invoice2data)
-[![License](https://img.shields.io/pypi/l/invoice2data)][license]
-[![Tests](https://github.com/invoice-x/invoice2data/workflows/Tests/badge.svg)][tests]
-[![Coverage](https://raw.githubusercontent.com/invoice-x/invoice2data/python-coverage-comment-action-data/badge.svg)][coverage]
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)][pre-commit]
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+This project uses the open-source `invoice2data` library as the invoice extraction engine and adds a custom validation and processing layer around it.
 
-<!-- docs-body -->
+## Overview
 
-[pypi status]: https://pypi.org/project/invoice2data/
-[read the docs]: https://invoice2data.readthedocs.io/
-[tests]: https://github.com/invoice-x/invoice2data/actions?workflow=Tests
-[coverage]: https://github.com/invoice-x/invoice2data/actions?workflow=Tests
-[pre-commit]: https://github.com/pre-commit/pre-commit
-[ruff badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
-[ruff project]: https://github.com/charliermarsh/ruff
+Manual invoice processing often involves repeatedly copying information from PDF invoices into spreadsheets or accounting systems.
 
-A command line tool and Python library that automates the extraction of key information from invoices to support your accounting
-process. The library is very flexible and can be used on other types of business documents as well.
+This project automates that workflow:
 
-In essence, invoice2data simplifies getting data from invoices by:
-
-- **Automating text extraction** — no more manual copying and pasting.
-- **Using templates for structure** — handles different invoice layouts.
-- **Providing structured output** — data ready for analysis or further processing.
-
-This makes it a valuable tool for businesses and developers dealing with a large
-volume of invoices, saving time and reducing manual-entry errors. It:
-
-1. extracts text from PDF files with a pluggable, cascading backend —
-   `pdfium` (default, no system deps), `pdftotext`, `text`, `pdfminer`,
-   `pdfplumber`, or OCR (`tesseract`, `ocrmypdf`, `docTR`, `paddleocr`,
-   `gvision`).
-2. searches for regex in the result using a YAML or JSON-based template system
-   (with an optional [AI fallback](https://invoice2data.readthedocs.io/en/latest/ai.html)).
-3. saves results as CSV, JSON or XML, or renames PDF files to match the content.
-
-With the flexible template system you can:
-
-- precisely match content PDF files
-- plugins available to match line items and tables
-- define static fields that are the same for every invoice
-- define custom fields needed in your organisation or process
-- have multiple regex per field (if layout or wording changes)
-- define currency
-- extract invoice-items using the `lines`-plugin developed by [Holger
-  Brunn](https://github.com/hbrunn)
-
-Go from PDF files to this:
-
-    {'issuer': 'QualityHosting', 'amount': 34.73, 'date': datetime.datetime(2014, 5, 7, 0, 0), 'invoice_number': '30064443', 'currency': 'EUR', 'desc': 'Invoice 30064443 from QualityHosting', 'template_name': 'com.qualityhosting.yml'}
-    {'issuer': 'Amazon EU', 'amount': 35.24, 'date': datetime.datetime(2014, 6, 4, 0, 0), 'invoice_number': 'EUVINS1-OF5-DE-120725895', 'currency': 'EUR', 'desc': 'Invoice EUVINS1-OF5-DE-120725895 from Amazon EU'}
-    {'issuer': 'Amazon Web Services', 'amount': 4.11, 'date': datetime.datetime(2014, 8, 3, 0, 0), 'invoice_number': '42183017', 'currency': 'USD', 'desc': 'Invoice 42183017 from Amazon Web Services'}
-    {'issuer': 'Envato', 'amount': 101.0, 'date': datetime.datetime(2015, 1, 28, 0, 0), 'invoice_number': '12429647', 'currency': 'USD', 'desc': 'Invoice 12429647 from Envato'}
-
-
-## Quickstart
-
-```bash
-pip install invoice2data
-invoice2data invoice.pdf                          # extract -> CSV
-invoice2data --output-format json invoice.pdf     # or JSON / XML
+```text
+PDF invoices
+     |
+     v
+invoice2data extraction
+     |
+     v
+Structured invoice data
+     |
+     +-- Required-field validation
+     +-- Duplicate detection
+     +-- Line-item validation
+     +-- Total reconciliation
+     |
+     v
+Accepted invoices -----> invoices.csv
+Line items ------------> invoice_items.csv
+Problems / duplicates -> review.csv
 ```
 
-As a Python library:
+The goal is not simply to extract data, but to validate the extracted data before accepting it.
 
-```python
-from invoice2data import extract_data
+## Features
 
-result = extract_data("invoice.pdf")
+### Invoice extraction
+
+Extracts key invoice information from PDF files using `invoice2data`, including:
+
+* Invoice number
+* Vendor
+* Invoice date
+* Total amount
+* Untaxed amount
+* VAT
+* Currency
+* Payment method
+
+### Required-field validation
+
+The processor checks whether important invoice fields were successfully extracted.
+
+Invoices with missing critical information are routed to the review dataset instead of being silently accepted.
+
+### Duplicate detection
+
+The processor keeps track of invoice numbers during a processing run.
+
+If the same invoice number appears again, it is flagged as:
+
+```text
+Duplicate invoice number
 ```
 
-No system libraries are required by default — the `pdfium` backend bundles its own
-engine. Optional backends and extras (poppler, OCR, AI, ...) are covered in the
-[installation guide][installation].
+This helps prevent the same invoice from being accidentally processed as a new record.
 
-## Documentation
+### Line-item validation
 
-Full documentation: **<https://invoice2data.readthedocs.io/>**
+For each extracted line item, the processor validates:
 
-- [How it works][how-it-works] — the extraction pipeline
-- [Installation][installation] — backends, OCR and optional extras
-- [Usage][usage] — all CLI options and common tasks
-- [Template creation][tutorial] — write templates for your invoices
-- [Recommended fields][fields] — the canonical output schema
-- [AI features][ai] — optional LLM fallback & template generation
-- [FAQ][faq] — including a comparison with other tools
+* Quantity
+* Unit price
+* Subtotal
 
-## Development
+It also checks:
 
-If you are interested in improving this project, have a look at our
-[contributor guide] to get you started quickly.
+```text
+quantity x unit price = subtotal
+```
 
-## Roadmap and open tasks
+A tolerance of `0.02` is used to account for minor rounding differences.
 
-- integrate with online OCR?
-- try to 'guess' parameters for new invoice formats.
-- apply machine learning to guess new parameters / template creation
-- Data cleanup per field
-- advanced table parsing with [pypdf_table_extraction](https://github.com/py-pdf/pypdf_table_extraction)
+### Total reconciliation
 
-## Maintainers
+The processor compares the sum of extracted line-item subtotals against the invoice total.
 
-- [Manuel Riel](https://github.com/m3nu)
-- [Alexis de Lattre](https://github.com/alexis-via)
-- [bosd](https://github.com/bosd)
+Large discrepancies are flagged for review.
 
-## Contributors and Credits
+### Review workflow
 
-- [Harshit Joshi](https://github.com/duskybomb): As Google Summer of
-  Code student.
-- [Holger Brunn](https://github.com/hbrunn): Add support for parsing
-  invoice items.
+Invoices containing validation problems are not included in the accepted invoice dataset.
 
-[pypi]: https://pypi.org/
-[file an issue]: https://github.com/invoice-x/invoice2data/issues
-[pip]: https://pip.pypa.io/
+Instead, they are written to:
 
-Contributions are very welcome.
-To learn more, see the [Contributor Guide].
+```text
+output/review.csv
+```
 
-## Used By
+This creates a simple human-in-the-loop workflow:
 
-- Odoo, OCA module [account_invoice_import_invoice2data](https://github.com/OCA/edi)
+```text
+Valid invoice
+     |
+     v
+Accepted dataset
 
-## Related Projects
+Problematic invoice
+     |
+     v
+Review queue
+     |
+     v
+Manual verification
+```
 
-- [OCR-Invoice](https://github.com/robela/OCR-Invoice) (FOSS \| C\#)
-- [DeepLogic AI](https://deeplogicai.tech/case_list/automatic-key-information-extraction-business-documents/) (Commercial \| SaaS)
-- [Docparser](https://docparser.com/) (Commercial \| Web Service)
-- [A-PDF](http://www.a-pdf.com/data-extractor/index.htm) (Commercial)
-- [PDFdeconstruct](http://www.glyphandcog.com/PDFdeconstruct.html?g6)
-  (Commercial)
-- [CVision](http://www.cvisiontech.com/library/document-automation/forms-processing/extract-data-from-invoice.html)
-  (Commercial)
+## Output
 
-<!-- github-only -->
+The processor generates three CSV files.
 
-[license]: https://invoice2data.readthedocs.io/latest/license.html
-[contributor guide]: https://invoice2data.readthedocs.io/latest/contributing.html
-[command-line reference]: https://invoice2data.readthedocs.io/latest/usage.html
-[tutorial]: https://invoice2data.readthedocs.io/latest/tutorial.html
-[installation]: https://invoice2data.readthedocs.io/latest/installation.html
-[how-it-works]: https://invoice2data.readthedocs.io/latest/how-it-works.html
-[usage]: https://invoice2data.readthedocs.io/latest/usage.html
-[fields]: https://invoice2data.readthedocs.io/latest/recommended-template-fields.html
-[ai]: https://invoice2data.readthedocs.io/latest/ai.html
-[faq]: https://invoice2data.readthedocs.io/latest/faq.html
+### `invoices.csv`
+
+Contains accepted invoice-level records.
+
+Example:
+
+```text
+Invoice Number,Vendor,Date,Total,Currency
+993548900,Coolblue B.V.,2014-04-19 00:00:00,717.97,EUR
+```
+
+### `invoice_items.csv`
+
+Contains extracted line items.
+
+Example:
+
+```text
+Invoice Number,Product,Quantity,Unit Price,Tax %,Subtotal
+993548900,Apple iPad Air Wifi 16 GB Zilver,1,399.0,21,399.0
+993548900,Nintendo 3DS XL Wit + Blauw,1,189.0,21,189.0
+```
+
+### `review.csv`
+
+Contains invoices that require manual verification.
+
+Example:
+
+```text
+File,Invoice Number,Issue,Status
+coolblue1_copy.pdf,993548900,Duplicate invoice number,REVIEW
+```
+
+## Example Run
+
+A test run with two PDFs demonstrates the duplicate-detection workflow:
+
+```text
+Found 2 PDF invoice(s).
+
+Processing: coolblue1.pdf
+SUCCESS: coolblue1.pdf
+
+Processing: coolblue1_copy.pdf
+REVIEW: coolblue1_copy.pdf
+Issues: Duplicate invoice number
+
+=============================================
+       INVOICE AUTOMATION REPORT
+=============================================
+Files received:          2
+Successfully processed:  1
+Needs review:            1
+Failed:                  0
+Invoices extracted:      1
+Items extracted:         5
+=============================================
+Output files:
+  invoices.csv
+  invoice_items.csv
+  review.csv
+```
+
+The first invoice is accepted, while the duplicate invoice is automatically routed to the review dataset.
+
+## Project Structure
+
+```text
+invoice2data/
+|
++-- invoice_processor.py
+|       Custom invoice automation and validation pipeline
+|
++-- tests/
+|       +-- test_invoice_processor.py
+|       +-- Existing invoice2data test suite
+|
++-- input/
+|       Local PDF test invoices
+|
++-- output/
+|       +-- invoices.csv
+|       +-- invoice_items.csv
+|       +-- review.csv
+|
++-- src/
+|       invoice2data extraction library
+|
++-- README.md
+```
+
+The `input/` and `output/` directories are excluded from Git because they contain local test data and generated files.
+
+## Installation
+
+This project requires Python 3.10 or newer.
+
+Install the project dependencies using the project's existing Python environment.
+
+If `pytest` is not already installed, install it with:
+
+```powershell
+python -m pip install pytest
+```
+
+## Running the Automation
+
+Place PDF invoices inside:
+
+```text
+input/
+```
+
+Then run:
+
+```powershell
+python invoice_processor.py
+```
+
+The processor writes the results to:
+
+```text
+output/invoices.csv
+output/invoice_items.csv
+output/review.csv
+```
+
+## Running the Tests
+
+Run the custom invoice-processor tests with:
+
+```powershell
+python -m pytest tests/test_invoice_processor.py -v
+```
+
+The current custom test suite verifies the safe decimal-conversion utility used by the validation pipeline.
+
+Example:
+
+```text
+5 passed
+```
+
+The repository also contains the broader test suite belonging to the underlying `invoice2data` project.
+
+## Technologies
+
+* Python
+* invoice2data
+* CSV
+* Decimal
+* pathlib
+* pytest
+* Git
+* GitHub
+
+## Validation Logic
+
+The processing pipeline follows this decision process:
+
+```text
+Extract invoice
+      |
+      v
+Extraction successful?
+   +--+--+
+   |     |
+  No    Yes
+   |     |
+   v     v
+Review  Validate fields
+          |
+          v
+      Duplicate?
+       +--+--+
+       |     |
+      Yes    No
+       |     |
+       v     v
+     Review  Validate line items
+                  |
+                  v
+             Reconcile totals
+                  |
+             +----+----+
+             |         |
+          Problems   Valid
+             |         |
+             v         v
+           Review    Accept
+```
+
+This approach reduces the risk of silently writing incorrect extracted data into downstream business records.
+
+## Limitations
+
+This is a portfolio/business-automation project rather than a production accounting system.
+
+Current limitations include:
+
+* PDF extraction quality depends on the underlying invoice template and extraction backend.
+* Different invoice layouts may require additional `invoice2data` templates.
+* OCR-based invoices may require additional configuration.
+* The current duplicate detection operates within a single processing run.
+* CSV files are used as the output layer rather than a database or accounting-system integration.
+* Human review is required for flagged invoices.
+
+## Future Production Extensions
+
+Potential production extensions could include:
+
+* Database storage
+* Cloud storage integration
+* Email attachment processing
+* Accounting-system/API integration
+* Persistent duplicate detection
+* Structured logging
+* Automated monitoring
+* Web dashboard
+* Authentication and user management
+
+These are intentionally outside the current project scope.
+
+## What This Project Demonstrates
+
+This project demonstrates practical automation concepts beyond simply writing a PDF parser:
+
+* Working with an existing Python library
+* File-system automation
+* Structured data extraction
+* Data validation
+* Financial calculations using `Decimal`
+* Duplicate detection
+* Error handling
+* Human-in-the-loop review workflows
+* CSV generation
+* Automated testing
+* Git/GitHub project management
+
+## Attribution
+
+The invoice extraction functionality is provided by the open-source `invoice2data` project:
+
+https://github.com/invoice-x/invoice2data
+
+This repository adds the custom `invoice_processor.py` automation and validation workflow around that extraction functionality.
