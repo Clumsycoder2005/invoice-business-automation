@@ -33,19 +33,20 @@ def to_decimal(value):
 
     try:
         return Decimal(str(value))
-    except (InvalidOperation, ValueError):
+    except (InvalidOperation, ValueError, TypeError):
         return None
 
 
 for pdf_file in pdf_files:
     print(f"\nProcessing: {pdf_file.name}")
 
-    # ---------------------------------------------------------
-    # 1. EXTRACT
-    # ---------------------------------------------------------
+    # =========================================================
+    # 1. EXTRACT INVOICE
+    # =========================================================
 
     try:
         invoice = extract_data(str(pdf_file))
+
     except Exception as error:
         failed_count += 1
 
@@ -80,9 +81,9 @@ for pdf_file in pdf_files:
 
     issues = []
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 2. REQUIRED FIELD VALIDATION
-    # ---------------------------------------------------------
+    # =========================================================
 
     if not invoice_number:
         issues.append("Missing invoice number")
@@ -96,9 +97,9 @@ for pdf_file in pdf_files:
     if total is None:
         issues.append("Missing or invalid invoice total")
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 3. DUPLICATE DETECTION
-    # ---------------------------------------------------------
+    # =========================================================
 
     if invoice_number:
         if invoice_number in seen_invoice_numbers:
@@ -106,9 +107,9 @@ for pdf_file in pdf_files:
         else:
             seen_invoice_numbers.add(invoice_number)
 
-    # ---------------------------------------------------------
-    # 4. PREPARE LINE ITEMS
-    # ---------------------------------------------------------
+    # =========================================================
+    # 4. PREPARE AND VALIDATE LINE ITEMS
+    # =========================================================
 
     invoice_items = invoice.get("lines", [])
 
@@ -121,23 +122,69 @@ for pdf_file in pdf_files:
         unit_price = to_decimal(item.get("price_unit"))
         subtotal = to_decimal(item.get("price_subtotal"))
 
+        product_name = item.get("name") or "Unknown product"
+
+        # -----------------------------------------------------
+        # Line-item validation
+        # -----------------------------------------------------
+
+        if quantity is None:
+            issues.append(
+                f"LINE_ITEM_INVALID: {product_name} - invalid quantity"
+            )
+
+        if unit_price is None:
+            issues.append(
+                f"LINE_ITEM_INVALID: {product_name} - invalid unit price"
+            )
+
+        if subtotal is None:
+            issues.append(
+                f"LINE_ITEM_INVALID: {product_name} - invalid subtotal"
+            )
+
+        # -----------------------------------------------------
+        # Quantity × unit price = subtotal
+        # -----------------------------------------------------
+
+        if (
+            quantity is not None
+            and unit_price is not None
+            and subtotal is not None
+        ):
+            calculated_subtotal = quantity * unit_price
+
+            difference = abs(calculated_subtotal - subtotal)
+
+            if difference > Decimal("0.02"):
+                issues.append(
+                    f"LINE_ITEM_MISMATCH: {product_name} "
+                    f"expected={calculated_subtotal} "
+                    f"actual={subtotal}"
+                )
+
+        # -----------------------------------------------------
+        # Add subtotal to invoice total calculation
+        # -----------------------------------------------------
+
         if subtotal is not None:
             item_total += subtotal
 
         current_item_rows.append([
             invoice_number,
-            item.get("name"),
+            product_name,
             item.get("qty"),
             item.get("price_unit"),
             item.get("line_tax_percent"),
             item.get("price_subtotal"),
         ])
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 5. TOTAL RECONCILIATION
-    # ---------------------------------------------------------
+    # =========================================================
 
     if total is not None and invoice_items:
+
         difference = abs(total - item_total)
 
         if difference > Decimal("0.02"):
@@ -148,11 +195,13 @@ for pdf_file in pdf_files:
             )
 
     elif total is not None and not invoice_items:
-        issues.append("NO_LINE_ITEMS: no line items extracted")
+        issues.append(
+            "NO_LINE_ITEMS: no line items extracted"
+        )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # 6. ROUTE RESULT
-    # ---------------------------------------------------------
+    # =========================================================
 
     if issues:
 
@@ -170,7 +219,8 @@ for pdf_file in pdf_files:
 
     else:
 
-        # Only VALID invoices reach the accepted datasets.
+        # Only valid invoices reach the accepted datasets.
+
         invoice_rows.append([
             invoice_number,
             vendor,
@@ -189,9 +239,8 @@ for pdf_file in pdf_files:
         print(f"SUCCESS: {pdf_file.name}")
 
 
-
 # =============================================================
-# 8. WRITE INVOICES CSV
+# 7. WRITE INVOICES CSV
 # =============================================================
 
 with open(
@@ -218,7 +267,7 @@ with open(
 
 
 # =============================================================
-# 9. WRITE LINE ITEMS CSV
+# 8. WRITE LINE ITEMS CSV
 # =============================================================
 
 with open(
@@ -243,7 +292,7 @@ with open(
 
 
 # =============================================================
-# 10. WRITE REVIEW CSV
+# 9. WRITE REVIEW CSV
 # =============================================================
 
 with open(
@@ -266,7 +315,7 @@ with open(
 
 
 # =============================================================
-# 11. FINAL REPORT
+# 10. FINAL REPORT
 # =============================================================
 
 print("\n" + "=" * 45)
